@@ -20,6 +20,9 @@ public class MainActivity extends Activity {
 	
 	private static final long DURATION_TO_FIX_LOST_MS = 10000;
 	
+	private static final long MINIMUM_UPDATE_TIME = 0;
+	private static final float MINIMUM_UPDATE_DISTANCE = 0.0f;
+	
 	private LocationManager locationManager;
 	private MyGpsListener gpsListener;
 	
@@ -53,10 +56,15 @@ public class MainActivity extends Activity {
 	protected void onResume() {
 		super.onResume();
 		
+		// ask Android for the GPS service
 		locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+		// make a delegate to receive callbacks
 		gpsListener = new MyGpsListener();
+		// ask for updates on the GPS status
 		locationManager.addGpsStatusListener(gpsListener);
-		locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, gpsListener);
+		// ask for updates on the GPS location
+		locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 
+				MINIMUM_UPDATE_TIME, MINIMUM_UPDATE_DISTANCE, gpsListener);
 	}
 
 	@Override
@@ -64,6 +72,7 @@ public class MainActivity extends Activity {
 		super.onPause();
 		
 		if (locationManager != null) {
+			// remove the delegates to stop the GPS
 			locationManager.removeGpsStatusListener(gpsListener);
 			locationManager.removeUpdates(gpsListener);
 			locationManager = null;
@@ -72,6 +81,7 @@ public class MainActivity extends Activity {
 	
 	private void updateView() {
 		
+		// update all data in the UI
 		latitudeText.setText(Double.toString(latitude));
 		longitudeText.setText(Double.toString(longitude));
 		qualityText.setText(getGrade());
@@ -84,38 +94,33 @@ public class MainActivity extends Activity {
 		if (!gpsEnabled) {
 			return "Disabled";
 		}
-		
 		if (!gpsFix) {
 			return "Waiting for Fix";
 		}
-		
 		if (accuracy <= 10) {
 			return "Good";
 		}
-		
 		if (accuracy <= 30) {
 			return "Fair";
 		}
-		
 		if (accuracy <= 100) {
 			return "Bad";
 		}
-		
 		return "Unusable";
 	}
 	
 	protected class MyGpsListener implements GpsStatus.Listener, LocationListener {
 		
-		private long previousLocationSystemTime = 0;
+		// the last location time is needed to determine if a fix has been lost
+		private long locationTime = 0;
 		private List<Float> rollingAverageData = new LinkedList<Float>();
 		
 		@Override
 		public void onGpsStatusChanged(int changeType) {
-			
 			if (locationManager != null) {
 				
+				// status changed so ask what the change was
 				GpsStatus status = locationManager.getGpsStatus(null);
-				
 				switch(changeType) {
 					case GpsStatus.GPS_EVENT_FIRST_FIX:
 						gpsEnabled = true;
@@ -123,13 +128,14 @@ public class MainActivity extends Activity {
 						break;
 					case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
 						gpsEnabled = true;
-						gpsFix = System.currentTimeMillis() - previousLocationSystemTime < DURATION_TO_FIX_LOST_MS;
+						// if it has been more then 10 seconds since the last update, consider the fix lost
+						gpsFix = System.currentTimeMillis() - locationTime < DURATION_TO_FIX_LOST_MS;
 						break;
-					case GpsStatus.GPS_EVENT_STARTED:
+					case GpsStatus.GPS_EVENT_STARTED: // GPS turned on
 						gpsEnabled = true;
 						gpsFix = false;
 						break;
-					case GpsStatus.GPS_EVENT_STOPPED:
+					case GpsStatus.GPS_EVENT_STOPPED: // GPS turned off
 						gpsEnabled = false;
 						gpsFix = false;
 						break;
@@ -138,6 +144,7 @@ public class MainActivity extends Activity {
 						return;
 				}
 				
+				// number of satellites, not useful, but cool
 				int newSatTotal = 0;
 				int newSatUsed = 0;
 				for(GpsSatellite sat : status.getSatellites()) {
@@ -156,11 +163,12 @@ public class MainActivity extends Activity {
 		@Override
 		public void onLocationChanged(Location location) {
 			
-			previousLocationSystemTime = System.currentTimeMillis();
+			locationTime = location.getTime();
 			latitude = location.getLatitude();
 			longitude = location.getLongitude();
 			
 			if (location.hasAccuracy()) {
+				// rolling average of accuracy so "Signal Quality" is not erratic
 				updateRollingAverage(location.getAccuracy());
 			}
 			
@@ -183,6 +191,7 @@ public class MainActivity extends Activity {
 		}
 		
 		private void updateRollingAverage(float value) {
+			// does a simple rolling average
 			rollingAverageData.add(value);
 			if (rollingAverageData.size() > 10) {
 				rollingAverageData.remove(0);
